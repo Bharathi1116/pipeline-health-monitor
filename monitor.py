@@ -1,30 +1,43 @@
 import sqlite3
+import requests
 
-def check_for_failures():
-    """Queries the database for the most recent failed jobs."""
+# Replace 'your-unique-topic' with the name you picked in Step 1
+TOPIC_NAME = "NtpdQ2nMXt3eywmK" 
+
+def send_alert(job_name, error_msg):
+    """Sends a notification to your phone/browser via ntfy.sh"""
+    try:
+        response = requests.post(
+            f"https://ntfy.sh/{TOPIC_NAME}",
+            data=f"🚨 Pipeline Failure: {job_name}\nError: {error_msg}".encode('utf-8'),
+            headers={
+                "Title": "Data Pipeline Alert",
+                "Priority": "high",
+                "Tags": "warning,skull"
+            }
+        )
+        if response.status_code == 200:
+            print(f"Notification sent for {job_name}!")
+    except Exception as e:
+        print(f"Failed to send alert: {e}")
+
+def run_monitor():
     conn = sqlite3.connect('pipeline_logs.db')
     cursor = conn.cursor()
 
-    # We only want to find 'Failed' jobs. 
-    # In a real system, we'd only look for NEW failures since the last check.
-    query = "SELECT id, job_name, error_message, timestamp FROM logs WHERE status = 'Failed'"
+    # Look for Failed jobs that haven't been 'resolved' 
+    # (For now, we'll just grab the latest ones)
+    cursor.execute("SELECT job_name, error_message FROM logs WHERE status = 'Failed' LIMIT 1")
+    failure = cursor.fetchone()
     
-    cursor.execute(query)
-    failures = cursor.fetchall()
-    
-    conn.close()
-    return failures
-
-def run_monitor():
-    print("--- Scanning for Pipeline Failures ---")
-    failures = check_for_failures()
-    
-    if not failures:
-        print("✅ All systems go. No failures detected.")
+    if failure:
+        job_name, error_msg = failure
+        print(f"🚨 Found failure in {job_name}. Sending alert...")
+        send_alert(job_name, error_msg)
     else:
-        print(f"🚨 ALERT: Found {len(failures)} failures!")
-        for f in failures:
-            print(f"ID: {f[0]} | Job: {f[1]} | Error: {f[2]} | Time: {f[3]}")
+        print("✅ No new failures.")
+
+    conn.close()
 
 if __name__ == "__main__":
     run_monitor()
